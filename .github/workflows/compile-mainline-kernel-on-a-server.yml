@@ -1,10 +1,10 @@
 #==========================================================================
-# Description: Compile beta general kernel
+# Description: Compile mainline kernel on a server
 # Copyright (C) 2021 https://github.com/unifreq/openwrt_packit
-# Copyright (C) 2021 https://github.com/ophub/kernel
+# Copyright (C) 2021 https://github.com/ophub/amlogic-s9xxx-armbian
 #==========================================================================
 
-name: Compile beta general kernel
+name: Compile mainline kernel on a server
 
 on:
   repository_dispatch:
@@ -13,10 +13,12 @@ on:
       kernel_source:
         description: "Select the kernel source"
         required: false
-        default: "unifreq"
+        default: "feryw"
         type: choice
         options:
           - unifreq
+          - codesnas
+          - feryw
       kernel_version:
         description: "Select kernel version"
         required: false
@@ -32,8 +34,21 @@ on:
           - 5.4.y_5.10.y
           - 5.15.y_6.1.y
           - 6.6.y_6.12.y
+          - 5.4.y_5.10.y_5.15.y
+          - 6.1.y_6.6.y_6.12.y
+          - all
       kernel_auto:
         description: "Auto use the latest kernel"
+        required: false
+        default: true
+        type: boolean
+      silent_log:
+        description: "Use silent logging"
+        required: false
+        default: true
+        type: boolean
+      delete_source:
+        description: "Delete the source after compilation"
         required: false
         default: true
         type: boolean
@@ -45,30 +60,6 @@ on:
         options:
           - all
           - dtbs
-      kernel_config:
-        description: "Set the path of kernel .config"
-        required: false
-        default: "kernel-config/release/general"
-        type: choice
-        options:
-          - kernel-config/release/general
-          - false
-      kernel_patch:
-        description: "Set the directory for kernel patches"
-        required: false
-        default: "kernel-patch/beta"
-        type: choice
-        options:
-          - kernel-patch/beta
-          - false
-      auto_patch:
-        description: "Set whether to use kernel patches"
-        required: false
-        default: "true"
-        type: choice
-        options:
-          - true
-          - false
       kernel_toolchain:
         description: "Select the compilation toolchain"
         required: false
@@ -77,11 +68,8 @@ on:
         options:
           - clang
           - gcc
-          - gcc-11.3
-          - gcc-12.2
-          - gcc-12.3
-          - gcc-13.2
-          - gcc-13.3
+          - gcc-14.2
+          - gcc-14.3
       compress_format:
         description: "Set the initrd compression format"
         required: false
@@ -95,27 +83,26 @@ on:
       kernel_sign:
         description: "Set the kernel custom signature"
         required: false
-        default: "-beta"
+        default: "-wyref"
         type: choice
         options:
-          - -beta
-          - -happy-new-year
-          - -dragon-boat-festival
-          - -mid-autumn-festival
-          - -happy-national-day
-          - -merry-christmas
-          - -spring-plowing
-          - -summer-growing
-          - -autumn-harvesting
-          - -winter-storing
-          - -yourname
+          - -ophub
+          - -wyref
+      kernel_config:
+        description: "Set the path of kernel .config"
+        required: false
+        default: "kernel-config/release/general"
+        type: choice
+        options:
+          - kernel-config/release/general
+          - false
 
 env:
-  TZ: America/New_York
+  TZ: Asia/Jakarta
 
 jobs:
   build:
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-22.04-arm
     if: ${{ github.event.repository.owner.id }} == ${{ github.event.sender.id }}
 
     steps:
@@ -129,7 +116,7 @@ jobs:
         run: |
           docker rmi $(docker images -q) 2>/dev/null
           [[ -n "${AGENT_TOOLSDIRECTORY}" ]] && sudo rm -rf "${AGENT_TOOLSDIRECTORY}"
-          sudo rm -rf /usr/share/dotnet /etc/apt/sources.list.d /usr/local/lib/android 2>/dev/null
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android 2>/dev/null
           sudo swapoff -a
           sudo rm -f /swapfile /mnt/swapfile
           sudo -E apt-get -y update
@@ -141,7 +128,9 @@ jobs:
           sudo -E apt-get clean
           sudo sed -i '/NVM_DIR/d;/skel/d' /root/{.bashrc,.profile}
           sudo rm -rf ~/{.cargo,.dotnet,.rustup}
-          sudo timedatectl set-timezone "${TZ}"
+          sudo -E timedatectl set-timezone "${TZ}"
+          sudo -E apt-get install -y ntpdate
+          sudo -E ntpdate pool.ntp.org
           echo "status=success" >> ${GITHUB_OUTPUT}
 
       - name: Create simulated physical disk
@@ -161,7 +150,7 @@ jobs:
           sudo mkdir -p /builder
           sudo mount /dev/github/runner /builder
           sudo chown -R runner.runner /builder
-          df -Th
+          df -hT
 
       - name: Create a mapped directory
         id: mapped
@@ -169,37 +158,36 @@ jobs:
         run: |
           df -hT ${PWD}
           mkdir -p /builder/{kernel,output}
-          ln -sf /builder/kernel /home/runner/work/_actions/ophub/amlogic-s9xxx-armbian/main/compile-kernel/kernel
-          ln -sf /builder/output /home/runner/work/_actions/ophub/amlogic-s9xxx-armbian/main/compile-kernel/output
+          ln -sf /builder/kernel /home/runner/work/_actions/feryw/amlogic-s9xxx-armbian/dev/compile-kernel/kernel
+          ln -sf /builder/output /home/runner/work/_actions/feryw/amlogic-s9xxx-armbian/dev/compile-kernel/output
           echo "status=success" >> ${GITHUB_OUTPUT}
 
       - name: Compile the kernel [ ${{ inputs.kernel_version }} ]
-        uses: ophub/amlogic-s9xxx-armbian@main
+        uses: feryw/amlogic-s9xxx-armbian@dev
         if: ${{ steps.mapped.outputs.status }} == 'success' && !cancelled()
         with:
           build_target: kernel
           kernel_source: ${{ inputs.kernel_source }}
           kernel_version: ${{ inputs.kernel_version }}
           kernel_auto: ${{ inputs.kernel_auto }}
+          delete_source: ${{ inputs.delete_source }}
           kernel_package: ${{ inputs.kernel_package }}
-          kernel_toolchain: ${{ inputs.kernel_toolchain }}
           kernel_sign: ${{ inputs.kernel_sign }}
-          kernel_config: ${{ inputs.kernel_config }}
-          kernel_patch: ${{ inputs.kernel_patch }}
-          auto_patch: ${{ inputs.auto_patch }}
+          kernel_toolchain: ${{ inputs.kernel_toolchain }}
           compress_format: ${{ inputs.compress_format }}
+          silent_log: ${{ inputs.silent_log }}
 
       - name: Upload Kernel to Release
         uses: ncipollo/release-action@main
         if: ${{ env.PACKAGED_STATUS }} == 'success' && !cancelled()
         with:
-          tag: kernel_beta
+          tag: kernel_stable
           artifacts: ${{ env.PACKAGED_OUTPUTPATH }}/*
           allowUpdates: true
+          removeArtifacts: false
+          replacesArtifacts: true
           token: ${{ secrets.GITHUB_TOKEN }}
           body: |
-            - The kernel can be used to compile Armbian and OpenWrt.
-            - The kernel source code comes from: ${{ inputs.kernel_source }}
-            - The kernel compilation toolchain: ${{ inputs.kernel_toolchain }}
-            - This is a `beta version` kernel, tweaked to suit your little needs.
-            - 这是`测试版`内核，为了满足你的小需求而折腾。
+            The kernel can be used to compile Armbian and OpenWrt.
+            The kernel source code comes from: ${{ inputs.kernel_source }}
+            The kernel compilation toolchain: ${{ inputs.kernel_toolchain }}
