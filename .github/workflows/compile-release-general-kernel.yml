@@ -55,6 +55,9 @@ on:
         options:
           - clang
           - gcc
+          - gcc-8.3
+          - gcc-9.2
+          - gcc-10.3
           - gcc-11.3
           - gcc-12.2
           - gcc-12.3
